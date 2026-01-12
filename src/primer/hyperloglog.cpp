@@ -11,12 +11,23 @@
 //===----------------------------------------------------------------------===//
 
 #include "primer/hyperloglog.h"
+#include <sys/types.h>
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
 
 namespace bustub {
 
 /** @brief Parameterized constructor. */
 template <typename KeyType>
-HyperLogLog<KeyType>::HyperLogLog(int16_t n_bits) : cardinality_(0) {}
+HyperLogLog<KeyType>::HyperLogLog(int16_t n_bits)
+    : cardinality_(0), n_bits_(std::max(n_bits, static_cast<int16_t>(0))) {
+  registers_.resize(1ULL << n_bits_, 0);
+}
 
 /**
  * @brief Function that computes binary.
@@ -26,8 +37,7 @@ HyperLogLog<KeyType>::HyperLogLog(int16_t n_bits) : cardinality_(0) {}
  */
 template <typename KeyType>
 auto HyperLogLog<KeyType>::ComputeBinary(const hash_t &hash) const -> std::bitset<BITSET_CAPACITY> {
-  /** @TODO(student) Implement this function! */
-  return {0};
+  return {hash};
 }
 
 /**
@@ -38,8 +48,14 @@ auto HyperLogLog<KeyType>::ComputeBinary(const hash_t &hash) const -> std::bitse
  */
 template <typename KeyType>
 auto HyperLogLog<KeyType>::PositionOfLeftmostOne(const std::bitset<BITSET_CAPACITY> &bset) const -> uint64_t {
-  /** @TODO(student) Implement this function! */
-  return 0;
+  uint64_t start = BITSET_CAPACITY - n_bits_;
+  // loop range: [start - 1, 0]
+  for (int i = start - 1; i >= 0; --i) {
+    if (bset.test(i)) {
+      return start - i;
+    }
+  }
+  return start + 1;
 }
 
 /**
@@ -49,7 +65,19 @@ auto HyperLogLog<KeyType>::PositionOfLeftmostOne(const std::bitset<BITSET_CAPACI
  */
 template <typename KeyType>
 auto HyperLogLog<KeyType>::AddElem(KeyType val) -> void {
-  /** @TODO(student) Implement this function! */
+  hash_t hash = CalculateHash(val);
+  // compute bucket index
+  uint64_t index = hash >> (BITSET_CAPACITY - n_bits_);
+  std::bitset<BITSET_CAPACITY> bset = ComputeBinary(hash);
+  auto position = static_cast<uint8_t>(PositionOfLeftmostOne(bset));
+  if (n_bits_ == 0) {
+    index = 0;
+  }
+
+  std::unique_lock lock(rwlock_);
+  if (registers_[index] < position) {
+    registers_[index] = position;
+  }
 }
 
 /**
@@ -57,7 +85,15 @@ auto HyperLogLog<KeyType>::AddElem(KeyType val) -> void {
  */
 template <typename KeyType>
 auto HyperLogLog<KeyType>::ComputeCardinality() -> void {
-  /** @TODO(student) Implement this function! */
+  std::unique_lock lock(rwlock_);
+
+  double sum = 0.0;
+  for (const auto &reg : registers_) {
+    sum += 1.0 / std::pow(2.0, reg);
+  }
+  auto m = static_cast<double>(1ULL << n_bits_);
+  double estimate = CONSTANT * m * m / sum;
+  cardinality_ = static_cast<size_t>(std::floor(estimate));
 }
 
 template class HyperLogLog<int64_t>;

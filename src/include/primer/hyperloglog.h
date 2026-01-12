@@ -15,6 +15,7 @@
 #include <bitset>
 #include <memory>
 #include <mutex>  // NOLINT
+#include <shared_mutex>
 #include <string>
 #include <utility>
 #include <vector>
@@ -22,15 +23,12 @@
 #include "common/util/hash_util.h"
 
 /** @brief Capacity of the bitset stream. */
-#define BITSET_CAPACITY 64
+static constexpr int BITSET_CAPACITY = 64;
 
 namespace bustub {
 
 template <typename KeyType>
 class HyperLogLog {
-  /** @brief Constant for HLL. */
-  static constexpr double CONSTANT = 0.79402;
-
  public:
   /** @brief Disable default constructor. */
   HyperLogLog() = delete;
@@ -71,8 +69,11 @@ class HyperLogLog {
 
   /** @brief Cardinality value. */
   size_t cardinality_;
-
-  /** @todo (student) can add their data structures that support HyperLogLog */
+  std::vector<uint8_t> registers_;
+  int16_t n_bits_;
+  std::shared_mutex rwlock_;
+  /** @brief Constant for HLL. */
+  static constexpr double CONSTANT = 0.79402;
 };
 
 }  // namespace bustub
