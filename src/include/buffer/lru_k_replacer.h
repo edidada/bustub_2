@@ -27,7 +27,7 @@ namespace bustub {
 enum class AccessType { Unknown = 0, Lookup, Scan, Index };
 
 class LRUKNode {
- private:
+ public:
   /** History of last seen K timestamps of this page. Least recent timestamp stored in front. */
   // Remove maybe_unused if you start using them. Feel free to change the member variables as you want.
 
@@ -79,7 +79,7 @@ class LRUKReplacer {
   [[maybe_unused]] size_t curr_size_{0};
   [[maybe_unused]] size_t replacer_size_;
   [[maybe_unused]] size_t k_;
-  [[maybe_unused]] std::mutex latch_;
+  [[maybe_unused]] std::mutex mtx_;
 };
 
 }  // namespace bustub

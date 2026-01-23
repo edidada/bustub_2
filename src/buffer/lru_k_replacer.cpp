@@ -39,7 +39,53 @@ LRUKReplacer::LRUKReplacer(size_t num_frames, size_t k) : replacer_size_(num_fra
  *
  * @return true if a frame is evicted successfully, false if no frames can be evicted.
  */
-auto LRUKReplacer::Evict() -> std::optional<frame_id_t> { return std::nullopt; }
+auto LRUKReplacer::Evict() -> std::optional<frame_id_t> {
+  std::lock_guard<std::mutex> lock(mtx_);
+
+  if (curr_size_ == 0) {
+    return std::nullopt;
+  }
+
+  auto vid = -1;
+  auto found_vict = false;
+  size_t min_ts = std::numeric_limits<size_t>::max();
+
+  // 1. find the victim from those who does not have enough history nodes
+  for (auto &[fid, node] : node_store_) {
+    if (node.is_evictable_ && node.history_.size() < k_) {
+      auto node_ts = node.history_.front();
+      if (node_ts < min_ts) {
+        vid = fid;
+        min_ts = node_ts;
+        found_vict = true;
+      }
+    }
+  }
+
+  if (found_vict) {
+    goto END;
+  }
+
+  // 2. find if there is a victim in those who have enough history
+  for (auto &[fid, node] : node_store_) {
+    if (node.is_evictable_) {
+      auto node_ts = node.history_.front();
+      if (node_ts < min_ts) {
+        vid = fid;
+        min_ts = node_ts;
+        found_vict = true;
+      }
+    }
+  }
+
+END:
+  if (found_vict) {
+    curr_size_--;
+    node_store_.erase(vid);
+    return vid;
+  }
+  return std::nullopt;
+}
 
 /**
  * TODO(P1): Add implementation
@@ -54,7 +100,31 @@ auto LRUKReplacer::Evict() -> std::optional<frame_id_t> { return std::nullopt; }
  * @param access_type type of access that was received. This parameter is only needed for
  * leaderboard tests.
  */
-void LRUKReplacer::RecordAccess(frame_id_t frame_id, [[maybe_unused]] AccessType access_type) {}
+void LRUKReplacer::RecordAccess(frame_id_t frame_id, [[maybe_unused]] AccessType access_type) {
+  std::lock_guard<std::mutex> lock(mtx_);
+
+  if (frame_id >= static_cast<frame_id_t>(replacer_size_)) {
+    return;
+  }
+
+  current_timestamp_++;
+
+  // 1. create a new node if it does not exist
+  if (node_store_.find(frame_id) == node_store_.end()) {
+    LRUKNode newNode;
+    newNode.fid_ = frame_id;
+    newNode.k_ = k_;
+    newNode.is_evictable_ = false;
+    node_store_[frame_id] = std::move(newNode);
+  }
+
+  // 2. update history
+  LRUKNode &node = node_store_[frame_id];
+  node.history_.push_back(current_timestamp_);
+  if (node.history_.size() > k_) {
+    node.history_.pop_front();
+  }
+}
 
 /**
  * TODO(P1): Add implementation
@@ -73,7 +143,22 @@ void LRUKReplacer::RecordAccess(frame_id_t frame_id, [[maybe_unused]] AccessType
  * @param frame_id id of frame whose 'evictable' status will be modified
  * @param set_evictable whether the given frame is evictable or not
  */
-void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {}
+void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {
+  std::lock_guard<std::mutex> lock(mtx_);
+
+  if (node_store_.find(frame_id) == node_store_.end()) {
+    return;
+  }
+
+  auto &node = node_store_[frame_id];
+  if (node.is_evictable_ && !set_evictable) {
+    curr_size_--;
+  } else if (!node.is_evictable_ && set_evictable) {
+    curr_size_++;
+  }
+
+  node.is_evictable_ = set_evictable;
+}
 
 /**
  * TODO(P1): Add implementation
@@ -92,7 +177,17 @@ void LRUKReplacer::SetEvictable(frame_id_t frame_id, bool set_evictable) {}
  *
  * @param frame_id id of frame to be removed
  */
-void LRUKReplacer::Remove(frame_id_t frame_id) {}
+void LRUKReplacer::Remove(frame_id_t frame_id) {
+  std::lock_guard<std::mutex> lock(mtx_);
+  if (node_store_.find(frame_id) == node_store_.end()) {
+    return;
+  }
+  if (!node_store_[frame_id].is_evictable_) {
+    return;
+  }
+  curr_size_--;
+  node_store_.erase(frame_id);
+}
 
 /**
  * TODO(P1): Add implementation
@@ -101,6 +196,9 @@ void LRUKReplacer::Remove(frame_id_t frame_id) {}
  *
  * @return size_t
  */
-auto LRUKReplacer::Size() -> size_t { return 0; }
+auto LRUKReplacer::Size() -> size_t {
+  std::lock_guard<std::mutex> lock(mtx_);
+  return curr_size_;
+}
 
 }  // namespace bustub
